@@ -1,3 +1,4 @@
+/* eslint-disable */
 import * as RA from "../Array.js"
 import * as Boolean from "../Boolean.js"
 import type * as Cause from "../Cause.js"
@@ -149,6 +150,7 @@ const contOpSuccess = {
     cont: core.OnSuccess,
     value: unknown
   ) => {
+    console.log(`contOpSuccess[OP_ON_SUCCESS] Invoking cont.effect_instruction_i1(${value}) - flatMap A -> Effect<B, E1, R1>`)
     return internalCall(() => cont.effect_instruction_i1(value))
   },
   ["OnStep"]: (
@@ -1144,32 +1146,44 @@ export class FiberRuntime<in out A, in out E = never> extends Effectable.Class<A
   }
 
   [OpCodes.OP_SYNC](op: core.Primitive & { _op: OpCodes.OP_SYNC }) {
+    console.log(`FiberRuntime[OP_SYNC]#${this._fiberId.id}`)
+    console.log(`op:`, op)
     const value = internalCall(() => op.effect_instruction_i0())
     const cont = this.getNextSuccessCont()
+    console.log(`cont:`, cont)
     if (cont !== undefined) {
       if (!(cont._op in contOpSuccess)) {
         // @ts-expect-error
         absurd(cont)
       }
       // @ts-expect-error
-      return contOpSuccess[cont._op](this, cont, value)
+      const resultOfContOp = contOpSuccess[cont._op](this, cont, value)
+      console.log(`Return resultOfContOp:`, resultOfContOp)
+      return resultOfContOp
     } else {
+      console.log(`cont is undefined, core.exitSucceed(${value})`)
       yieldedOpChannel.currentOp = core.exitSucceed(value) as any
       return YieldedOp
     }
   }
 
   [OpCodes.OP_SUCCESS](op: core.Primitive & { _op: OpCodes.OP_SUCCESS }) {
+    console.log(`FiberRuntime[OP_SUCCESS]#${this._fiberId.id}`)
+    console.log(`op:`, op)
     const oldCur = op
     const cont = this.getNextSuccessCont()
+    console.log(`cont:`, cont)
     if (cont !== undefined) {
       if (!(cont._op in contOpSuccess)) {
         // @ts-expect-error
         absurd(cont)
       }
       // @ts-expect-error
-      return contOpSuccess[cont._op](this, cont, oldCur.effect_instruction_i0)
+      const resultOfContOp = contOpSuccess[cont._op](this, cont, oldCur.effect_instruction_i0)
+      console.log(`Return resultOfContOp:`, resultOfContOp)
+      return resultOfContOp
     } else {
+      console.log(`cont is undefined, using`, oldCur)
       yieldedOpChannel.currentOp = oldCur
       return YieldedOp
     }
@@ -1214,6 +1228,8 @@ export class FiberRuntime<in out A, in out E = never> extends Effectable.Class<A
   }
 
   [OpCodes.OP_WITH_RUNTIME](op: core.Primitive & { _op: OpCodes.OP_WITH_RUNTIME }) {
+    console.log(`FiberRuntime[OP_WITH_RUNTIME]#${this._fiberId.id}`)
+    console.log(`op:`, op)
     return internalCall(() =>
       op.effect_instruction_i0(
         this as FiberRuntime<unknown, unknown>,
@@ -1288,7 +1304,11 @@ export class FiberRuntime<in out A, in out E = never> extends Effectable.Class<A
   }
 
   [OpCodes.OP_ON_SUCCESS](op: core.Primitive & { _op: OpCodes.OP_ON_SUCCESS }) {
+    console.log(`FiberRuntime[OP_ON_SUCCESS]#${this._fiberId.id}`)
+    console.log(`op:`, op)
     this.pushStack(op)
+    console.log(`Pushed op to _stack:`, this._stack)
+    console.log(`Returning op.effect_instruction_i0 - flatMap self parameter`)
     return op.effect_instruction_i0
   }
 
@@ -1349,6 +1369,7 @@ export class FiberRuntime<in out A, in out E = never> extends Effectable.Class<A
     this.currentOpCount = 0
 
     while (true) {
+      console.log(`FiberRuntime[runLoop]#${this._fiberId.id} Iteration with currentOpCount ${this.currentOpCount}`)
       if ((this.currentRuntimeFlags & OpSupervision) !== 0) {
         this.currentSupervisor.onEffect(this, cur)
       }
@@ -1383,21 +1404,24 @@ export class FiberRuntime<in out A, in out E = never> extends Effectable.Class<A
         )
 
         if (cur === YieldedOp) {
+          console.log(`FiberRuntime[runLoop]#${this._fiberId.id} cur is YieldedOp, channel op:`, yieldedOpChannel.currentOp)
           const op = yieldedOpChannel.currentOp!
           if (
             op._op === OpCodes.OP_YIELD ||
             op._op === OpCodes.OP_ASYNC
           ) {
+            console.log(`FiberRuntime[runLoop]#${this._fiberId.id} ${op._op}, returing YieldedOp`)
             return YieldedOp
           }
 
           yieldedOpChannel.currentOp = null
-          return (
-              op._op === OpCodes.OP_SUCCESS ||
-              op._op === OpCodes.OP_FAILURE
-            ) ?
-            op as unknown as Exit.Exit<A, E> :
-            core.exitFailCause(internalCause.die(op))
+          if (op._op === OpCodes.OP_SUCCESS || op._op === OpCodes.OP_FAILURE) {
+            console.log(`FiberRuntime[runLoop]#${this._fiberId.id} ${op._op}, returning op as Exit`)
+            return op as unknown as Exit.Exit<A, E>
+          } else {
+            console.log(`FiberRuntime[runLoop]#${this._fiberId.id} ${op._op}, unknown error...die!`)
+            return core.exitFailCause(internalCause.die(op))
+          }
         }
       } catch (e) {
         if (cur !== YieldedOp && !Predicate.hasProperty(cur, "_op") || !((cur as core.Primitive)._op in this)) {
